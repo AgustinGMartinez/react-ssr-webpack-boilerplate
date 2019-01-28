@@ -1,29 +1,55 @@
-import express from "express"
-const server = express()
-import path from "path"
+import express from 'express';
+const server = express();
+import path from 'path';
+const expressStaticGzip = require('express-static-gzip');
+import webpack from 'webpack';
+import webpackHotServerMiddleware from 'webpack-hot-server-middleware';
 
-const webpack = require("webpack")
-const config = require("../../config/webpack.dev.js")
-const compiler = webpack(config)
+import configDevClient from '../../config/webpack.dev-client.js';
+import configDevServer from '../../config/webpack.dev-server.js';
+import configProdClient from '../../config/webpack.prod-client.js';
+import configProdServer from '../../config/webpack.prod-server.js';
 
-const webpackDevMiddleware = require("webpack-dev-middleware")(
-  compiler,
-  config.devServer
-)
+const isProd = process.env.NODE_ENV === 'production';
+const isDev = !isProd;
+if (isDev) {
+	const compiler = webpack([configDevClient, configDevServer]);
 
-const webpackHotMiddlware = require("webpack-hot-middleware")(
-  compiler,
-  config.devServer
-)
+	const clientCompiler = compiler.compilers[0];
+	const serverCompiler = compiler.compilers[1];
 
-server.use(webpackDevMiddleware)
-server.use(webpackHotMiddlware)
-console.log("Middleware enabled")
+	const webpackDevMiddleware = require('webpack-dev-middleware')(
+		compiler,
+		configDevClient.devServer
+	);
 
-const staticMiddleware = express.static("dist")
-server.use(staticMiddleware)
+	const webpackHotMiddlware = require('webpack-hot-middleware')(
+		clientCompiler,
+		configDevClient.devServer
+	);
 
-const PORT = 8080
+	server.use(webpackDevMiddleware);
+	server.use(webpackHotMiddlware);
+	server.use(webpackHotServerMiddleware(compiler));
+	console.log('Middleware enabled');
+} else {
+	webpack([configProdClient, configProdServer]).run((err, stats) => {
+		const render = require('../../build/prod-server-bundle.js').default;
+		server.use(
+			expressStaticGzip('dist', {
+				enableBrotli: true
+			})
+		);
+		server.use(render());
+		console.log('Webpack Compiled');
+	});
+}
+
+const PORT = 8080;
 server.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`)
-})
+	console.log(
+		`Server listening on http://localhost:${PORT} in ${
+			process.env.NODE_ENV
+		}`
+	);
+});
